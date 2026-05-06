@@ -1,0 +1,23 @@
+[project]
+name = "ikawa-roaster-emulator"
+version = "0.1.0"
+description = "IKAWA home roaster Bluetooth protocol emulator"
+readme = { file = "README", content-type = "text/plain" }
+requires-python = ">=3.11"
+dependencies = [
+    "bluezero; sys_platform == 'linux'",
+    "dbus-python; sys_platform == 'linux'",
+    "pandas",
+    "protobuf",
+]
+
+[project.scripts]
+ikawa-emulator = "ikawa_roaster_emulator.app:run"
+ikawa-emulator-protocol = "ikawa_roaster_emulator.app:run_protocol_only"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true

@@ -1,0 +1,13 @@
+name: ikawa_mobile_workspace
+
+packages:
+  - apps/**
+  - packages/**
+
+scripts:
+  generate-proto:
+    run: protoc --proto_path=proto --dart_out=packages/ikawa_protocol_core/lib/src/gen proto/ikawa.proto
+  analyze:
+    run: melos exec -- "dart analyze ."
+  test:
+    run: melos exec --fail-fast -- "dart test"

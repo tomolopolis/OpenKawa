@@ -1,0 +1,16 @@
+name: ikawa_devtools
+description: Internal developer tooling for logging and replay.
+version: 0.1.0
+publish_to: "none"
+resolution: workspace
+
+environment:
+  sdk: "^3.11.5"
+
+dependencies:
+  ikawa_protocol_core:
+    path: ../ikawa_protocol_core
+
+dev_dependencies:
+  lints: ^5.1.1
+  test: ^1.25.15

@@ -1,0 +1,27 @@
+services:
+  ikawa-emulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: ikawa-roaster-emulator:dev
+    container_name: ikawa-roaster-emulator
+    privileged: true
+    network_mode: host
+    volumes:
+      - ./:/workspace
+    environment:
+      - PYTHONPATH=/workspace
+    command: []
+
+  ikawa-emulator-protocol:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: ikawa-roaster-emulator:dev
+    container_name: ikawa-roaster-emulator-protocol
+    volumes:
+      - ./:/workspace
+    environment:
+      - PYTHONPATH=/workspace
+      - IKAWA_PROTOCOL_ONLY=1
+    command: []

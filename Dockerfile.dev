@@ -1,0 +1,37 @@
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV UV_LINK_MODE=copy
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/workspace
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    pkg-config \
+    git \
+    bluez \
+    dbus \
+    libdbus-1-dev \
+    protobuf-compiler \
+    libcairo2-dev \
+    libgirepository1.0-dev \
+    gir1.2-glib-2.0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir uv
+
+WORKDIR /workspace
+
+COPY pyproject.toml uv.lock README ./
+COPY src ./src
+COPY pySimIkawa.py ./
+COPY IkawaCmd.protc ./
+COPY sim_session_exp3_feb26.csv ./
+COPY profile_set.json ./
+COPY docker/entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
+RUN uv sync --frozen
+
+ENTRYPOINT ["/entrypoint.sh"]

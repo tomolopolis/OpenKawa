@@ -1,0 +1,24 @@
+name: ikawa_mobile_workspace
+publish_to: "none"
+
+environment:
+  sdk: "^3.11.5"
+
+dev_dependencies:
+  melos: ^7.5.1
+
+workspace:
+  - apps/ikawa_mobile_app
+  - packages/ikawa_protocol_core
+  - packages/ikawa_ble_transport
+  - packages/ikawa_app_domain
+  - packages/ikawa_devtools
+
+melos:
+  scripts:
+    generate-proto:
+      run: protoc --proto_path=proto --dart_out=packages/ikawa_protocol_core/lib/src/gen proto/ikawa.proto
+    analyze:
+      run: melos exec -- "dart analyze ."
+    test:
+      run: melos exec --fail-fast -- "sh -c 'if [ -d test ]; then flutter test; else echo \"No tests in $(pwd), skipping.\"; fi'"

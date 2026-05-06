@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+<module fileurl="file://$PROJECT_DIR$/packages/ikawa_app_domain/melos_ikawa_app_domain.iml" filepath="$PROJECT_DIR$/packages/ikawa_app_domain/melos_ikawa_app_domain.iml"/>
+<module fileurl="file://$PROJECT_DIR$/packages/ikawa_ble_transport/melos_ikawa_ble_transport.iml" filepath="$PROJECT_DIR$/packages/ikawa_ble_transport/melos_ikawa_ble_transport.iml"/>
+<module fileurl="file://$PROJECT_DIR$/packages/ikawa_devtools/melos_ikawa_devtools.iml" filepath="$PROJECT_DIR$/packages/ikawa_devtools/melos_ikawa_devtools.iml"/>
+<module fileurl="file://$PROJECT_DIR$/apps/ikawa_mobile_app/melos_ikawa_mobile_app.iml" filepath="$PROJECT_DIR$/apps/ikawa_mobile_app/melos_ikawa_mobile_app.iml"/>
+<module fileurl="file://$PROJECT_DIR$/packages/ikawa_protocol_core/melos_ikawa_protocol_core.iml" filepath="$PROJECT_DIR$/packages/ikawa_protocol_core/melos_ikawa_protocol_core.iml"/>
+<module fileurl="file://$PROJECT_DIR$/melos_ikawa_mobile_workspace.iml" filepath="$PROJECT_DIR$/melos_ikawa_mobile_workspace.iml"/>
+    </modules>
+  </component>
+</project>
