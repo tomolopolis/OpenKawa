@@ -16,7 +16,7 @@ class LiveRoastTelemetry {
   /// Combined / primary RoR when firmware exposes above/below probes (display units).
   final double? rorCPerMin;
 
-  /// Fan setpoint (0–255-style), aligned with [RoastProfileSeries.fan].
+  /// Fan setpoint (0–255-style); profile fan curves use [RoastProfileSeries.fanTimeSec]/[fan].
   final double? fanSetpoint;
 
   static LiveRoastTelemetry? fromMachStatus(pb.RespMachStatusGetAll s) {

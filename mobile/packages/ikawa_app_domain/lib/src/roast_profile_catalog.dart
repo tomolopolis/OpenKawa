@@ -33,34 +33,40 @@ class RoastProfileCatalog {
     }).toList();
   }
 
+  /// Temp and fan use **independent** times (Ikawa-style). Times in seconds, fan 0–255-style.
+  static RoastProfileSeries _seriesLight() {
+    return RoastProfileSeriesFactory.sparseSetpoints(
+      tempTimeSec: const [0, 120, 300, 480, 660],
+      temp: const [158, 158, 176, 192, 204],
+      fanTimeSec: const [0, 240, 660],
+      fan: const [88, 112, 128],
+    );
+  }
+
+  static RoastProfileSeries _seriesMedium() {
+    return RoastProfileSeriesFactory.sparseSetpoints(
+      tempTimeSec: const [0, 120, 320, 520, 720],
+      temp: const [154, 154, 178, 198, 212],
+      fanTimeSec: const [0, 360, 720],
+      fan: const [90, 118, 132],
+    );
+  }
+
+  static RoastProfileSeries _seriesMediumDark() {
+    return RoastProfileSeriesFactory.sparseSetpoints(
+      tempTimeSec: const [0, 150, 400, 580, 780],
+      temp: const [150, 150, 188, 208, 218],
+      fanTimeSec: const [0, 200, 520, 780],
+      fan: const [86, 95, 125, 138],
+    );
+  }
+
   static RoastProfileSeries _seriesForRoastLevel(String roastLevel) {
     final r = roastLevel.toLowerCase();
-    if (r.contains('light')) {
-      return RoastProfileSeriesFactory.synthetic(
-        durationSec: 660,
-        startTemp: 158,
-        endTemp: 204,
-      );
-    }
-    if (r.contains('medium-dark') || r.contains('dark')) {
-      return RoastProfileSeriesFactory.synthetic(
-        durationSec: 780,
-        startTemp: 150,
-        endTemp: 218,
-      );
-    }
-    if (r.contains('medium')) {
-      return RoastProfileSeriesFactory.synthetic(
-        durationSec: 720,
-        startTemp: 154,
-        endTemp: 212,
-      );
-    }
-    return RoastProfileSeriesFactory.synthetic(
-      durationSec: 720,
-      startTemp: 155,
-      endTemp: 210,
-    );
+    if (r.contains('light')) return _seriesLight();
+    if (r.contains('medium-dark') || r.contains('dark')) return _seriesMediumDark();
+    if (r.contains('medium')) return _seriesMedium();
+    return _seriesMedium();
   }
 
   static final List<RoastProfileCatalogEntry> defaultEntries = [
@@ -71,11 +77,7 @@ class RoastProfileCatalog {
       coffeeName: 'Worka Sakaro',
       processType: 'Washed',
       roastLevel: 'Light',
-      series: RoastProfileSeriesFactory.synthetic(
-        durationSec: 660,
-        startTemp: 158,
-        endTemp: 204,
-      ),
+      series: _seriesLight(),
     ),
     RoastProfileCatalogEntry(
       id: 'cat-002',
@@ -120,10 +122,11 @@ class RoastProfileCatalog {
       coffeeName: 'Yirgacheffe (sim)',
       processType: 'Washed',
       roastLevel: 'Medium',
-      series: RoastProfileSeriesFactory.synthetic(
-        durationSec: 600,
-        startTemp: 150,
-        endTemp: 208,
+      series: RoastProfileSeriesFactory.sparseSetpoints(
+        tempTimeSec: const [0, 100, 250, 400, 600],
+        temp: const [150, 150, 175, 195, 208],
+        fanTimeSec: const [0, 280, 600],
+        fan: const [92, 118, 132],
       ),
     ),
   ];

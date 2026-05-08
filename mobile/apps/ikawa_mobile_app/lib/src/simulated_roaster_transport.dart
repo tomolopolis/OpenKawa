@@ -12,6 +12,7 @@ class SimulatedRoasterTransport implements BleTransport {
   int _simTimeSeconds = 0;
   int _simTempAbove = 130;
   int _simTempBelow = 110;
+  pb.RoastProfile? _uploadedProfile;
 
   SimulatedRoasterTransport() {
     _connection.add(BleConnectionState.disconnected);
@@ -101,27 +102,37 @@ class SimulatedRoasterTransport implements BleTransport {
       // PROFILE_GET — matches Python `IkawaEmulatedRoaster.PROFILE_GET`.
       final profileGet = response.ensureRespProfileGet();
       response.resp = pb.IkawaResponse_Resp.PROFILE_GET;
-      final prof = profileGet.ensureProfile();
-      prof
-        ..schema = 2
-        ..name = 'Simulator · City Roast'
-        ..coffeeName = 'Yirgacheffe (sim)'
-        ..profileType = 'simulator'
-        ..tempSensor = 0;
-      prof.tempPoints
-        ..clear()
-        ..addAll([
-          pb.TempPoint()..time = 0..temp = 150,
-          pb.TempPoint()..time = 120..temp = 198,
-          pb.TempPoint()..time = 360..temp = 215,
-        ]);
-      prof.fanPoints
-        ..clear()
-        ..addAll([
-          pb.FanPoint()..time = 0..power = 50,
-          pb.FanPoint()..time = 180..power = 45,
-        ]);
-      prof.id.addAll([0x01, 0x23, 0x45, 0x67, 0x89, 0xab]);
+      final prof = _uploadedProfile ?? profileGet.ensureProfile();
+      if (_uploadedProfile == null) {
+        prof
+          ..schema = 2
+          ..name = 'Simulator · City Roast'
+          ..coffeeName = 'Yirgacheffe (sim)'
+          ..profileType = 'simulator'
+          ..tempSensor = 0;
+        prof.tempPoints
+          ..clear()
+          ..addAll([
+            pb.TempPoint()..time = 0..temp = 150,
+            pb.TempPoint()..time = 100..temp = 150,
+            pb.TempPoint()..time = 250..temp = 175,
+            pb.TempPoint()..time = 400..temp = 195,
+            pb.TempPoint()..time = 600..temp = 208,
+          ]);
+        prof.fanPoints
+          ..clear()
+          ..addAll([
+            pb.FanPoint()..time = 0..power = 92,
+            pb.FanPoint()..time = 280..power = 118,
+            pb.FanPoint()..time = 600..power = 132,
+          ]);
+        prof.id.addAll([0x01, 0x23, 0x45, 0x67, 0x89, 0xab]);
+      } else {
+        profileGet.profile = prof;
+      }
+    } else if (request.cmdType == 14 && request.hasProfileSet()) {
+      _uploadedProfile = request.profileSet.profile.deepCopy();
+      response.resp = pb.IkawaResponse_Resp.OK;
     }
 
     _notifications.add(_codec.encode(Uint8List.fromList(response.writeToBuffer())));

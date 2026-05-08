@@ -6,6 +6,7 @@ import 'package:ikawa_app_domain/ikawa_app_domain.dart';
 
 import 'providers.dart';
 import 'widgets/roast_profile_chart.dart';
+import 'roast_features.dart';
 
 enum _ProfileChartMode { temperature, advanced }
 
@@ -20,7 +21,7 @@ class ProfileDetailScreen extends ConsumerStatefulWidget {
 
   final RoastProfileCatalogEntry entry;
 
-  /// During an active roast, pass telemetry (seconds aligned with [entry.series.timeSec]).
+  /// During an active roast, pass telemetry (seconds on the same axis as [RoastProfileSeries.timelineStartSec]–[timelineEndSec]).
   final double? liveTimeSec;
   final double? liveTemp;
   final double? liveRor;
@@ -31,14 +32,40 @@ class ProfileDetailScreen extends ConsumerStatefulWidget {
 
 class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
   _ProfileChartMode _mode = _ProfileChartMode.temperature;
+  late RoastProfileSeries _editableSeries;
+
+  @override
+  void initState() {
+    super.initState();
+    _editableSeries = widget.entry.series;
+  }
 
   @override
   Widget build(BuildContext context) {
     final e = widget.entry;
+    final validationIssues = const RoastProfileValidator().validate(_editableSeries);
     final showRor = _mode == _ProfileChartMode.advanced;
+    final runHistory = ref.watch(roastRunHistoryProvider)[e.id] ?? const <RoastRunSummary>[];
     final roasterLive = ref.watch(liveRoastTelemetryProvider);
+    final extSensor = ref.watch(externalSensorTelemetryProvider);
+    final beanLibrary = ref.watch(beanLibraryProvider);
+    final selectedBeanId = ref.watch(selectedBeanIdProvider);
+    GreenBean? bean;
+    if (selectedBeanId == null) {
+      bean = beanLibrary.isEmpty ? null : beanLibrary.first;
+    } else {
+      for (final b in beanLibrary) {
+        if (b.id == selectedBeanId) {
+          bean = b;
+          break;
+        }
+      }
+    }
     final liveTimeSec = roasterLive?.timeSec ?? widget.liveTimeSec;
-    final liveTemp = roasterLive?.beanTempC ?? widget.liveTemp;
+    final virtualBeanTemp = roasterLive == null
+        ? null
+        : estimateVirtualBeanTemp(inletTempC: roasterLive.beanTempC, bean: bean);
+    final liveTemp = extSensor?.beanProbeTempC ?? roasterLive?.beanTempC ?? virtualBeanTemp ?? widget.liveTemp;
     final liveRor = showRor ? (roasterLive?.rorCPerMin ?? widget.liveRor) : null;
     final liveFan = roasterLive?.fanSetpoint;
     final hasLiveMarker = liveTimeSec != null && liveTemp != null;
@@ -47,6 +74,33 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
       appBar: AppBar(
         title: Text(e.profileName),
         actions: [
+          TextButton(
+            onPressed: () {
+              final updated = RoastProfileCatalogEntry(
+                id: e.id.startsWith('custom-') || e.id.startsWith('imported-')
+                    ? e.id
+                    : 'custom-${DateTime.now().millisecondsSinceEpoch}',
+                profileName: e.profileName,
+                origin: e.origin,
+                coffeeName: e.coffeeName,
+                processType: e.processType,
+                roastLevel: e.roastLevel,
+                series: _editableSeries,
+              );
+              final all = [...ref.read(importedRoastProfilesProvider)];
+              final idx = all.indexWhere((p) => p.id == updated.id);
+              if (idx >= 0) {
+                all[idx] = updated;
+              } else {
+                all.add(updated);
+              }
+              ref.read(importedRoastProfilesProvider.notifier).state = all;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Profile changes saved')),
+              );
+            },
+            child: const Text('Save'),
+          ),
           TextButton(
             onPressed: () {
               ref.read(selectedRoastProfileCatalogEntryProvider.notifier).state = e;
@@ -105,6 +159,15 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
                   ),
                 ),
               ),
+            if (virtualBeanTemp != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Text(
+                  extSensor != null
+                      ? 'External probe active: ${extSensor.beanProbeTempC.toStringAsFixed(1)} C'
+                      : 'Virtual bean temp: ${virtualBeanTemp.toStringAsFixed(1)} C',
+                ),
+              ),
             const SizedBox(height: 8),
             Expanded(
               child: Padding(
@@ -117,8 +180,10 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(11),
                     child: RoastProfileChart(
-                      series: e.series,
+                      series: _editableSeries,
                       showRor: showRor,
+                      editable: true,
+                      onSeriesChanged: (next) => setState(() => _editableSeries = next),
                       liveTimeSec: liveTimeSec,
                       liveTemp: liveTemp,
                       liveFan: liveFan,
@@ -151,6 +216,65 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
                       isMarker: true,
                     ),
                 ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                runHistory.isEmpty
+                    ? 'No recorded runs for this profile yet.'
+                    : 'Recorded runs: ${runHistory.length}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            if (runHistory.isNotEmpty)
+              SizedBox(
+                height: 110,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: math.min(runHistory.length, 8),
+                  itemBuilder: (context, i) {
+                    final run = runHistory[i];
+                    return SizedBox(
+                      width: 220,
+                      child: Card(
+                        margin: const EdgeInsets.fromLTRB(12, 0, 0, 8),
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Run ${i + 1}', style: Theme.of(context).textTheme.labelLarge),
+                              Text('Drop ${run.dropTempC.toStringAsFixed(1)} C'),
+                              Text('Duration ${(run.durationSec / 60).toStringAsFixed(1)} min'),
+                              Text(
+                                run.developmentRatioPct == null
+                                    ? 'DTR n/a'
+                                    : 'DTR ${run.developmentRatioPct!.toStringAsFixed(1)}%',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            if (validationIssues.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  validationIssues.first.message,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Text(
+                'Temperature: drag dots on the solid curve. '
+                'Advanced: drag squares on the dashed fan curve (0–255). '
+                'Fan and temp setpoints can sit at different times (Ikawa-style). '
+                'Horizontal drag moves time; keep ≥5s between points on each curve.',
               ),
             ),
           ],

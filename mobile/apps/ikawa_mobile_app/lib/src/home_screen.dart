@@ -4,13 +4,17 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ikawa_ble_transport/ikawa_ble_transport.dart';
+import 'package:ikawa_app_domain/ikawa_app_domain.dart';
 import 'package:ikawa_protocol_core/ikawa_proto_gen.dart' as pb;
 import 'package:permission_handler/permission_handler.dart';
 
 import 'app_config.dart';
 import 'live_roast_telemetry.dart';
+import 'profile_detail_screen.dart';
 import 'providers.dart';
+import 'roast_features.dart';
 import 'widgets/status_card.dart';
+import 'widgets/roast_profile_chart.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -30,7 +34,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Timer? _statusPollTimer;
   Map<String, String> _machineInfo = const {};
   Map<String, String> _liveStatus = const {};
+  final _beanRepo = AppBeanLibraryRepository();
+  final _profileIo = ProfileIoService();
+  final _runRepo = RoastRunHistoryRepository();
 
+  Future<void> _showBeanEditor() async {
+    final edited = await showDialog<List<GreenBean>>(
+      context: context,
+      builder: (context) => _BeanLibraryDialog(initial: ref.read(beanLibraryProvider)),
+    );
+    if (edited == null) return;
+    ref.read(beanLibraryProvider.notifier).state = edited;
+    if (edited.isNotEmpty) {
+      final selectedId = ref.read(selectedBeanIdProvider);
+      final stillExists = edited.any((b) => b.id == selectedId);
+      if (!stillExists) {
+        ref.read(selectedBeanIdProvider.notifier).state = edited.first.id;
+      }
+    } else {
+      ref.read(selectedBeanIdProvider.notifier).state = null;
+    }
+    await _saveBeanLibrary();
+  }
   Future<String?> _ensureBlePermissions() async {
     if (useSimulatedTransport) return null;
 
@@ -78,6 +103,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _bootstrapLocalState();
     final transport = ref.read(transportProvider);
     _connectionSub = transport.connectionState().listen((state) {
       if (!mounted) return;
@@ -94,6 +120,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
       });
     });
+  }
+
+  Future<void> _bootstrapLocalState() async {
+    final beans = await _beanRepo.load();
+    if (!mounted) return;
+    if (beans.isNotEmpty) {
+      ref.read(beanLibraryProvider.notifier).state = beans;
+      final selectedId = ref.read(selectedBeanIdProvider);
+      if (selectedId == null || !beans.any((b) => b.id == selectedId)) {
+        ref.read(selectedBeanIdProvider.notifier).state = beans.first.id;
+      }
+    }
+    final runs = await _runRepo.load();
+    if (!mounted) return;
+    ref.read(roastRunHistoryProvider.notifier).state = runs;
   }
 
   @override
@@ -191,6 +232,99 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _machineInfo = const {};
       _liveStatus = const {};
     });
+  }
+
+  Future<void> _uploadSelectedProfile() async {
+    final selectedCatalog = ref.read(selectedRoastProfileCatalogEntryProvider);
+    if (selectedCatalog == null) {
+      setState(() => _status = 'Select a profile from Profiles tab first.');
+      return;
+    }
+    setState(() => _status = 'Uploading ${selectedCatalog.profileName}...');
+    try {
+      final uploader = ProfileUploadService(sessionService: ref.read(sessionServiceProvider));
+      final result = await uploader.uploadCatalogProfile(selectedCatalog);
+      ref.read(uploadedChunkCountProvider.notifier).state = result.chunkCount;
+      if (!mounted) return;
+      setState(() => _status = 'Profile uploaded in ${result.chunkCount} chunks.');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _status = 'Profile upload failed: $e');
+    }
+  }
+
+  Future<void> _saveBeanLibrary() async {
+    final beans = ref.read(beanLibraryProvider);
+    await _beanRepo.save(beans);
+    if (!mounted) return;
+    setState(() => _status = 'Saved ${beans.length} beans.');
+  }
+
+  Future<void> _loadBeanLibrary() async {
+    final beans = await _beanRepo.load();
+    ref.read(beanLibraryProvider.notifier).state = beans;
+    if (!mounted) return;
+    setState(() => _status = 'Loaded ${beans.length} beans.');
+  }
+
+  Future<void> _exportCsv() async {
+    final selected = ref.read(selectedRoastProfileCatalogEntryProvider);
+    if (selected == null) {
+      setState(() => _status = 'Select a profile before exporting.');
+      return;
+    }
+    final csv = _profileIo.exportArtisanCsv(
+      profile: selected,
+      samples: ref.read(roastSamplesProvider),
+    );
+    setState(() => _status = 'CSV export ready (${csv.split('\n').length - 1} rows).');
+  }
+
+  Future<void> _stopRoastAndRecordRun() async {
+    final currentSession = ref.read(roastSessionStateProvider);
+    final selectedProfile = ref.read(selectedRoastProfileCatalogEntryProvider);
+    final samples = ref.read(roastSamplesProvider);
+    if (!currentSession.isRunning || selectedProfile == null || samples.isEmpty) {
+      ref.read(roastSessionStateProvider.notifier).state = const RoastSessionState();
+      setState(() => _status = 'Roast stopped.');
+      return;
+    }
+    final startSec = currentSession.roastStartSec ?? samples.first.timeSec;
+    final endSec = samples.last.timeSec;
+    final duration = (endSec - startSec).clamp(0, 7200).toDouble();
+    final firstCrack = currentSession.firstCrackSec;
+    final devPct = firstCrack == null || endSec <= firstCrack
+        ? null
+        : ((endSec - firstCrack) / (endSec - startSec) * 100);
+    final summary = RoastRunSummary(
+      profileId: selectedProfile.id,
+      profileName: selectedProfile.profileName,
+      startedAtIso: DateTime.now().subtract(Duration(seconds: duration.round())).toIso8601String(),
+      endedAtIso: DateTime.now().toIso8601String(),
+      durationSec: duration,
+      dropTempC: samples.last.beanTempC,
+      firstCrackSec: firstCrack == null ? null : (firstCrack - startSec).clamp(0, 7200).toDouble(),
+      developmentRatioPct: devPct,
+    );
+    final map = {...ref.read(roastRunHistoryProvider)};
+    final list = [...(map[selectedProfile.id] ?? const <RoastRunSummary>[])];
+    list.insert(0, summary);
+    map[selectedProfile.id] = list.take(50).toList();
+    ref.read(roastRunHistoryProvider.notifier).state = map;
+    await _runRepo.save(map);
+    ref.read(roastSessionStateProvider.notifier).state = const RoastSessionState();
+    setState(() => _status = 'Roast run saved for ${selectedProfile.profileName}.');
+  }
+
+  Future<void> _autoCompleteRunIfFinished(LiveRoastTelemetry telemetry) async {
+    final session = ref.read(roastSessionStateProvider);
+    if (!session.isRunning) return;
+    final selectedProfile = ref.read(selectedRoastProfileCatalogEntryProvider);
+    if (selectedProfile == null) return;
+    final targetEnd = selectedProfile.series.timelineEndSec;
+    if (telemetry.timeSec >= targetEnd) {
+      await _stopRoastAndRecordRun();
+    }
   }
 
   Future<pb.IkawaResponse> _sendCommand(int cmdType) async {
@@ -301,6 +435,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final telemetry = LiveRoastTelemetry.fromMachStatus(s);
       if (telemetry != null) {
         ref.read(liveRoastTelemetryProvider.notifier).state = telemetry;
+        final selectedBeanId = ref.read(selectedBeanIdProvider);
+        GreenBean? bean;
+        for (final b in ref.read(beanLibraryProvider)) {
+          if (selectedBeanId == null || b.id == selectedBeanId) {
+            bean = b;
+            break;
+          }
+        }
+        final beanTemp = telemetry.beanTempC;
+        final derivedRor = telemetry.rorCPerMin ?? 0;
+        final samples = [...ref.read(roastSamplesProvider)];
+        samples.add(
+          LiveRoastSample(
+            timeSec: telemetry.timeSec,
+            inletTempC: s.hasTempAbove() ? s.tempAbove.toDouble() : telemetry.beanTempC,
+            beanTempC: beanTemp,
+            rorCPerMin: derivedRor,
+            fan: telemetry.fanSetpoint ?? 0,
+          ),
+        );
+        ref.read(roastSamplesProvider.notifier).state = samples.take(180).toList();
+        final warnings = evaluateRoastWarnings(
+          rorCPerMin: derivedRor,
+          elapsedSec: telemetry.timeSec,
+          bean: bean,
+        );
+        if (warnings.isNotEmpty && mounted && !silent) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(warnings.first.message)));
+        }
+        ref.read(externalSensorTelemetryProvider.notifier).state = ExternalSensorSample(
+          timeSec: telemetry.timeSec,
+          beanProbeTempC: telemetry.beanTempC - 3,
+        );
+        await _autoCompleteRunIfFinished(telemetry);
       }
 
       pb.RoastProfile? loadedProfile;
@@ -348,6 +516,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final session = ref.watch(sessionServiceProvider);
     final selectedCatalog = ref.watch(selectedRoastProfileCatalogEntryProvider);
+    final roastSession = ref.watch(roastSessionStateProvider);
+    final telemetry = ref.watch(liveRoastTelemetryProvider);
+    final dtr = telemetry == null ? null : calculateDtrPercent(roastSession, telemetry.timeSec);
+    final dtrLabel = dtr == null ? 'DTR: not started' : 'DTR ${dtr.toStringAsFixed(1)}% · ${dtrZone(dtr)}';
+    final uploadedChunks = ref.watch(uploadedChunkCountProvider);
+    final canShowLiveOverlay = selectedCatalog != null && telemetry != null;
+    final beans = ref.watch(beanLibraryProvider);
+    final selectedBeanId = ref.watch(selectedBeanIdProvider);
     return Padding(
       padding: const EdgeInsets.all(16),
       child: SingleChildScrollView(
@@ -420,6 +596,119 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   : null,
               child: const Text('Refresh Live Status'),
             ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: _connectionState == BleConnectionState.connected ? _uploadSelectedProfile : null,
+              child: const Text('Upload Selected Profile'),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    onPressed: telemetry == null
+                        ? null
+                        : () {
+                            ref.read(roastSessionStateProvider.notifier).state = RoastSessionState(
+                              isRunning: true,
+                              roastStartSec: telemetry.timeSec,
+                            );
+                          },
+                    child: const Text('Start Roast'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: roastSession.isRunning ? _stopRoastAndRecordRun : null,
+                    child: const Text('Stop Roast'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.tonal(
+                    onPressed: (!roastSession.isRunning || telemetry == null)
+                        ? null
+                        : () {
+                            final current = ref.read(roastSessionStateProvider);
+                            ref.read(roastSessionStateProvider.notifier).state = current.copyWith(
+                              firstCrackSec: telemetry.timeSec,
+                            );
+                          },
+                    child: const Text('Mark First Crack'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(dtrLabel),
+            if (uploadedChunks > 0) Text('Last upload chunks: $uploadedChunks'),
+            const SizedBox(height: 12),
+            if (selectedCatalog != null) ...[
+              Text(
+                telemetry == null ? 'Profile preview' : 'Live overlay on active profile',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: RoastProfileChart(
+                    series: selectedCatalog.series,
+                    showRor: true,
+                    editable: false,
+                    liveTimeSec: telemetry?.timeSec,
+                    liveTemp: telemetry?.beanTempC,
+                    liveFan: telemetry?.fanSetpoint,
+                    liveRor: telemetry?.rorCPerMin,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: canShowLiveOverlay
+                          ? () {
+                              Navigator.of(context).push<void>(
+                                MaterialPageRoute<void>(
+                                  builder: (context) => ProfileDetailScreen(entry: selectedCatalog),
+                                ),
+                              );
+                            }
+                          : null,
+                      child: const Text('Open active profile'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (beans.isNotEmpty)
+                  DropdownButton<String>(
+                    value: selectedBeanId ?? beans.first.id,
+                    items: beans
+                        .map((b) => DropdownMenuItem<String>(
+                              value: b.id,
+                              child: Text('${b.name} (${b.densityGPerMl.toStringAsFixed(2)} g/ml)'),
+                            ))
+                        .toList(),
+                    onChanged: (v) => ref.read(selectedBeanIdProvider.notifier).state = v,
+                  ),
+                OutlinedButton(onPressed: _showBeanEditor, child: const Text('Edit Beans')),
+                OutlinedButton(onPressed: _loadBeanLibrary, child: const Text('Load Bean Library')),
+                OutlinedButton(onPressed: _exportCsv, child: const Text('Export Artisan CSV')),
+              ],
+            ),
             const SizedBox(height: 12),
             StatusCard(
               title: 'Machine Info',
@@ -443,6 +732,151 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _BeanLibraryDialog extends StatefulWidget {
+  const _BeanLibraryDialog({required this.initial});
+
+  final List<GreenBean> initial;
+
+  @override
+  State<_BeanLibraryDialog> createState() => _BeanLibraryDialogState();
+}
+
+class _BeanLibraryDialogState extends State<_BeanLibraryDialog> {
+  late List<GreenBean> _beans;
+
+  @override
+  void initState() {
+    super.initState();
+    _beans = [...widget.initial];
+  }
+
+  Future<void> _addBean() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final bean = await showDialog<GreenBean>(
+      context: context,
+      builder: (context) => _BeanEditorDialog(
+        bean: GreenBean(
+          id: 'bean-$now',
+          name: 'New Bean',
+          densityGPerMl: 0.70,
+          moisturePercent: 10.8,
+          beanSizeScreen: 16,
+        ),
+      ),
+    );
+    if (bean != null) setState(() => _beans.add(bean));
+  }
+
+  Future<void> _editBean(int idx) async {
+    final bean = await showDialog<GreenBean>(
+      context: context,
+      builder: (context) => _BeanEditorDialog(bean: _beans[idx]),
+    );
+    if (bean != null) {
+      setState(() => _beans[idx] = bean);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Bean Library'),
+      content: SizedBox(
+        width: 420,
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: _beans.length,
+          itemBuilder: (context, i) {
+            final b = _beans[i];
+            return ListTile(
+              title: Text(b.name),
+              subtitle: Text(
+                'Density ${b.densityGPerMl.toStringAsFixed(2)} g/ml · Moisture ${b.moisturePercent.toStringAsFixed(1)}% · Size ${b.beanSizeScreen}',
+              ),
+              onTap: () => _editBean(i),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => setState(() => _beans.removeAt(i)),
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _addBean, child: const Text('Add bean')),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_beans),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _BeanEditorDialog extends StatefulWidget {
+  const _BeanEditorDialog({required this.bean});
+  final GreenBean bean;
+
+  @override
+  State<_BeanEditorDialog> createState() => _BeanEditorDialogState();
+}
+
+class _BeanEditorDialogState extends State<_BeanEditorDialog> {
+  late final TextEditingController _name = TextEditingController(text: widget.bean.name);
+  late final TextEditingController _density =
+      TextEditingController(text: widget.bean.densityGPerMl.toStringAsFixed(2));
+  late final TextEditingController _moisture =
+      TextEditingController(text: widget.bean.moisturePercent.toStringAsFixed(1));
+  late final TextEditingController _size =
+      TextEditingController(text: widget.bean.beanSizeScreen.toString());
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _density.dispose();
+    _moisture.dispose();
+    _size.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Bean details'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(controller: _name, decoration: const InputDecoration(labelText: 'Name')),
+          TextField(controller: _density, decoration: const InputDecoration(labelText: 'Density (g/ml)')),
+          TextField(controller: _moisture, decoration: const InputDecoration(labelText: 'Moisture (%)')),
+          TextField(controller: _size, decoration: const InputDecoration(labelText: 'Bean size')),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () {
+            final parsedDensity = double.tryParse(_density.text) ?? widget.bean.densityGPerMl;
+            final parsedMoisture = double.tryParse(_moisture.text) ?? widget.bean.moisturePercent;
+            final parsedSize = int.tryParse(_size.text) ?? widget.bean.beanSizeScreen;
+            Navigator.of(context).pop(
+              GreenBean(
+                id: widget.bean.id,
+                name: _name.text.trim().isEmpty ? widget.bean.name : _name.text.trim(),
+                densityGPerMl: parsedDensity,
+                moisturePercent: (parsedMoisture.clamp(8.0, 14.0) as num).toDouble(),
+                beanSizeScreen: parsedSize,
+              ),
+            );
+          },
+          child: const Text('Done'),
+        ),
+      ],
     );
   }
 }

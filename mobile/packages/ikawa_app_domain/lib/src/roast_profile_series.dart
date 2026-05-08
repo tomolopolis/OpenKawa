@@ -1,51 +1,104 @@
 import 'dart:math' as math;
 
-/// Time-aligned profile curves for UI (not wire protobuf). Units are display-only:
-/// [timeSec] seconds, [temp] bean temperature (°C-style), [ror] rate of rise (°C/min-style),
-/// [fan] setpoint in the same 0–255-style range as firmware fan fields.
+/// Roast profile for UI (not wire protobuf). **Temp** and **fan** each have their own
+/// time series (Ikawa-style): [tempTimeSec]/[temp] and [fanTimeSec]/[fan] may differ in
+/// length and timestamps.
 ///
-/// Ikawa-style timelines often include a short **preheat** segment (~1 min) at charge temperature
-/// before the programmed roast curve; RoR is derived from the temperature samples.
-/// After the roast target is reached, an optional **cooling** segment models fan-only cooldown
-/// until a safe eject temperature.
+/// [ror] is °C/min-style, aligned with [temp] samples only (derived unless [synthetic]
+/// passes a smoothed override).
 class RoastProfileSeries {
   RoastProfileSeries({
-    required List<double> timeSec,
+    required List<double> tempTimeSec,
     required List<double> temp,
-    required List<double> ror,
+    required List<double> fanTimeSec,
     required List<double> fan,
-  })  : timeSec = List.unmodifiable(timeSec),
+    List<double>? rorAtTempPoints,
+  })  : tempTimeSec = List.unmodifiable(tempTimeSec),
         temp = List.unmodifiable(temp),
-        ror = List.unmodifiable(ror),
-        fan = List.unmodifiable(fan) {
-    if (timeSec.length != temp.length ||
-        temp.length != ror.length ||
-        ror.length != fan.length) {
-      throw ArgumentError('timeSec, temp, ror, and fan must have equal length');
+        fanTimeSec = List.unmodifiable(fanTimeSec),
+        fan = List.unmodifiable(fan),
+        ror = List.unmodifiable(
+          rorAtTempPoints ?? RoastProfileSeriesFactory.rorFromTempSeries(tempTimeSec, temp),
+        ) {
+    if (tempTimeSec.length != temp.length) {
+      throw ArgumentError('tempTimeSec and temp must have equal length');
     }
-    if (timeSec.isEmpty) {
-      throw ArgumentError('Series must not be empty');
+    if (fanTimeSec.length != fan.length) {
+      throw ArgumentError('fanTimeSec and fan must have equal length');
     }
+    if (temp.length != ror.length) {
+      throw ArgumentError('ror must align with temp (${temp.length} vs ${ror.length})');
+    }
+    if (tempTimeSec.isEmpty || fanTimeSec.isEmpty) {
+      throw ArgumentError('Temp and fan series must be non-empty');
+    }
+    _assertStrictlyIncreasing(tempTimeSec, 'tempTimeSec');
+    _assertStrictlyIncreasing(fanTimeSec, 'fanTimeSec');
   }
 
-  final List<double> timeSec;
+  final List<double> tempTimeSec;
   final List<double> temp;
-  final List<double> ror;
+  final List<double> fanTimeSec;
   final List<double> fan;
+  final List<double> ror;
 
-  double get durationSec => timeSec.last - timeSec.first;
+  double get timelineStartSec => math.min(tempTimeSec.first, fanTimeSec.first);
+  double get timelineEndSec => math.max(tempTimeSec.last, fanTimeSec.last);
+  double get durationSec => timelineEndSec - timelineStartSec;
+
+  static void _assertStrictlyIncreasing(List<double> t, String name) {
+    for (var i = 1; i < t.length; i++) {
+      if (t[i] <= t[i - 1]) {
+        throw ArgumentError('$name must be strictly increasing');
+      }
+    }
+  }
 }
 
 /// Builds plausible demo curves for catalog entries until real profile payloads exist.
 final class RoastProfileSeriesFactory {
   RoastProfileSeriesFactory._();
 
+  /// Sparse profile with **independent** temp and fan times (typical Ikawa Home / protobuf shape).
+  static RoastProfileSeries sparseSetpoints({
+    required List<double> tempTimeSec,
+    required List<double> temp,
+    required List<double> fanTimeSec,
+    required List<double> fan,
+  }) {
+    if (tempTimeSec.length != temp.length ||
+        fanTimeSec.length != fan.length ||
+        temp.length < 2 ||
+        fan.length < 2) {
+      throw ArgumentError('Need at least two temp and two fan setpoints, aligned lengths');
+    }
+    return RoastProfileSeries(
+      tempTimeSec: List<double>.from(tempTimeSec),
+      temp: List<double>.from(temp),
+      fanTimeSec: List<double>.from(fanTimeSec),
+      fan: List<double>.from(fan),
+    );
+  }
+
+  /// Convenience: same timestamps for every temp and fan row (legacy app behavior).
+  static RoastProfileSeries sparseSetpointsAligned({
+    required List<double> timeSec,
+    required List<double> temp,
+    required List<double> fan,
+  }) {
+    return sparseSetpoints(
+      tempTimeSec: timeSec,
+      temp: temp,
+      fanTimeSec: timeSec,
+      fan: fan,
+    );
+  }
+
   /// [durationSec] is time from 0 to **end of roast** (preheat + roast; [endTemp] at this time).
   /// [coolingSec] appends fan cooling: temperature decays toward [coolEndTemp]. Total timeline
   /// is `durationSec + coolingSec`.
   ///
-  /// RoR is °C/min from consecutive [temp] samples, smoothed lightly, then **non-increasing**
-  /// only during the roast phase (not during cooling, where RoR is negative).
+  /// Uses one shared time grid for temp and fan (dense synthetic demo).
   static RoastProfileSeries synthetic({
     required double durationSec,
     required double startTemp,
@@ -64,7 +117,7 @@ final class RoastProfileSeriesFactory {
     final maxPreheat = math.max(0.0, durationSec - 30.0);
     final pre = math.min(preheatSec, maxPreheat).clamp(0.0, maxPreheat).toDouble();
     final roastSpan = durationSec - pre;
-    const k = 3.0; // higher → more rise early; keeps RoR falling through the roast
+    const k = 3.0;
 
     final t = List<double>.generate(n, (i) => total * i / (n - 1));
     final temp = List<double>.generate(n, (i) {
@@ -98,7 +151,13 @@ final class RoastProfileSeriesFactory {
       return 255;
     });
 
-    return RoastProfileSeries(timeSec: t, temp: temp, ror: ror, fan: fan);
+    return RoastProfileSeries(
+      tempTimeSec: t,
+      temp: temp,
+      fanTimeSec: List<double>.from(t),
+      fan: fan,
+      rorAtTempPoints: ror,
+    );
   }
 
   /// Rate of rise (°C/min) from paired [timeSec] and [temp] samples (secant between points).
@@ -125,7 +184,6 @@ final class RoastProfileSeriesFactory {
     return t.length - 1;
   }
 
-  /// First index with `t[i] > sec` (roast phase uses `sec == durationSec`); [t.length] if none.
   static int _firstStrictlyAfter(List<double> t, double sec) {
     const eps = 1e-9;
     for (var i = 0; i < t.length; i++) {
@@ -134,7 +192,6 @@ final class RoastProfileSeriesFactory {
     return t.length;
   }
 
-  /// BT-style roast phase: RoR does not increase on `[startIndex, endExclusive)`.
   static List<double> _enforceNonIncreasingOnRange(
     List<double> ror,
     int startIndex,
