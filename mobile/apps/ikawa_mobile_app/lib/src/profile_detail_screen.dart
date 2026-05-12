@@ -45,6 +45,8 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
     final e = widget.entry;
     final validationIssues = const RoastProfileValidator().validate(_editableSeries);
     final showRor = _mode == _ProfileChartMode.advanced;
+    final roastSession = ref.watch(roastSessionStateProvider);
+    final showLiveRoastOverlay = roastSession.isRunning;
     final runHistory = ref.watch(roastRunHistoryProvider)[e.id] ?? const <RoastRunSummary>[];
     final roasterLive = ref.watch(liveRoastTelemetryProvider);
     final extSensor = ref.watch(externalSensorTelemetryProvider);
@@ -61,13 +63,15 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
         }
       }
     }
-    final liveTimeSec = roasterLive?.timeSec ?? widget.liveTimeSec;
+    final liveTimeSec = showLiveRoastOverlay ? (roasterLive?.timeSec ?? widget.liveTimeSec) : null;
     final virtualBeanTemp = roasterLive == null
         ? null
         : estimateVirtualBeanTemp(inletTempC: roasterLive.beanTempC, bean: bean);
-    final liveTemp = extSensor?.beanProbeTempC ?? roasterLive?.beanTempC ?? virtualBeanTemp ?? widget.liveTemp;
-    final liveRor = showRor ? (roasterLive?.rorCPerMin ?? widget.liveRor) : null;
-    final liveFan = roasterLive?.fanSetpoint;
+    final liveTemp = showLiveRoastOverlay
+        ? (extSensor?.beanProbeTempC ?? roasterLive?.beanTempC ?? virtualBeanTemp ?? widget.liveTemp)
+        : null;
+    final liveRor = showLiveRoastOverlay && showRor ? (roasterLive?.rorCPerMin ?? widget.liveRor) : null;
+    final liveFan = showLiveRoastOverlay ? roasterLive?.fanSetpoint : null;
     final hasLiveMarker = liveTimeSec != null && liveTemp != null;
 
     return Scaffold(
@@ -144,7 +148,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
                 ),
               ),
             ),
-            if (roasterLive != null)
+            if (showLiveRoastOverlay && roasterLive != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Align(
@@ -159,7 +163,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
                   ),
                 ),
               ),
-            if (virtualBeanTemp != null)
+            if (showLiveRoastOverlay && virtualBeanTemp != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                 child: Text(
