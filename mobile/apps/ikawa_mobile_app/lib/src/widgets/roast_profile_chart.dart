@@ -1,10 +1,153 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ikawa_app_domain/ikawa_app_domain.dart';
 
 enum _ChartHandleKind { temp, fan }
+
+/// Shared plot rect and axis gutters (painter + drag hit-testing).
+class _ChartLayout {
+  _ChartLayout({
+    required this.plot,
+    required this.xMin,
+    required this.xMax,
+    required this.tempMin,
+    required this.tempMax,
+    required this.rorMin,
+    required this.rorMax,
+    required this.fanMin,
+    required this.fanMax,
+    required this.showRor,
+    required this.showFan,
+    required this.rorTickX,
+    required this.fanTickX,
+  });
+
+  final Rect plot;
+  final double xMin;
+  final double xMax;
+  final double tempMin;
+  final double tempMax;
+  final double rorMin;
+  final double rorMax;
+  final double fanMin;
+  final double fanMax;
+  final bool showRor;
+  final bool showFan;
+
+  /// Right edge for RoR tick labels (labels are right-aligned to this x).
+  final double rorTickX;
+  final double fanTickX;
+
+  static const titleRowHeight = 18.0;
+  static const bottomPad = 36.0;
+  static const colGap = 6.0;
+  static const rightMargin = 6.0;
+
+  static _ChartLayout compute({
+    required Size size,
+    required RoastProfileSeries series,
+    required bool showRor,
+    required TextStyle labelStyle,
+  }) {
+    final temp = series.temp;
+    final fan = series.fan;
+    final showFan = fan.isNotEmpty;
+    final rorDisplay = RoastProfileSeriesFactory.rorDisplayFromTempProfile(
+      series.tempTimeSec,
+      series.temp,
+    );
+
+    var xMin = series.timelineStartSec;
+    var xMax = series.timelineEndSec;
+    if (xMax <= xMin) xMax = xMin + 60;
+
+    final tempMin = temp.reduce((a, b) => a < b ? a : b) - 4;
+    final tempMax = temp.reduce((a, b) => a > b ? a : b) + 4;
+    var rorMin = -2.0;
+    var rorMax = 8.0;
+    if (rorDisplay.ror.isNotEmpty) {
+      final rorLo = rorDisplay.ror.reduce((a, b) => a < b ? a : b);
+      final rorHi = rorDisplay.ror.reduce((a, b) => a > b ? a : b);
+      rorMin = math.min(0.0, rorLo) - 2.0;
+      rorMax = math.max(0.0, rorHi) + 2.0;
+      if (rorMax <= rorMin) rorMax = rorMin + 8.0;
+    }
+
+    final fanHi = showFan ? fan.reduce((a, b) => a > b ? a : b) : 255.0;
+    const fanMin = 0.0;
+    final fanMax = math.max(255.0, fanHi * 1.05);
+
+    double measure(String text) {
+      final tp = TextPainter(
+        text: TextSpan(text: text, style: labelStyle),
+        textDirection: ui.TextDirection.ltr,
+      )..layout();
+      return tp.width;
+    }
+
+    var leftPad = 8.0;
+    for (var i = 0; i <= 4; i++) {
+      final v = tempMin + (tempMax - tempMin) * (4 - i) / 4;
+      leftPad = math.max(leftPad, measure('${v.round()}') + 10);
+    }
+    leftPad = math.max(leftPad, measure('°C') + 10);
+
+    var fanColW = 0.0;
+    if (showFan) {
+      fanColW = measure('Fan') + 4;
+      for (var i = 0; i <= 4; i++) {
+        final v = fanMin + (fanMax - fanMin) * (4 - i) / 4;
+        fanColW = math.max(fanColW, measure(v.round().toString()) + 4);
+      }
+    }
+
+    var rorColW = 0.0;
+    if (showRor) {
+      rorColW = measure('RoR') + 4;
+      for (var i = 0; i <= 4; i++) {
+        final v = rorMin + (rorMax - rorMin) * (4 - i) / 4;
+        rorColW = math.max(rorColW, measure(v.toStringAsFixed(0)) + 4);
+      }
+    }
+
+    final rightGutter = rightMargin + fanColW + (showRor && showFan ? colGap : 0) + rorColW;
+    final plotTop = titleRowHeight + 6;
+    final plot = Rect.fromLTRB(
+      leftPad,
+      plotTop,
+      size.width - rightGutter,
+      size.height - bottomPad,
+    );
+
+    var fanTickX = size.width - rightMargin;
+    var rorTickX = fanTickX;
+    if (showFan) {
+      fanTickX = size.width - rightMargin;
+      rorTickX = fanTickX - fanColW - (showRor ? colGap : 0);
+    } else if (showRor) {
+      rorTickX = size.width - rightMargin;
+    }
+
+    return _ChartLayout(
+      plot: plot,
+      xMin: xMin,
+      xMax: xMax,
+      tempMin: tempMin,
+      tempMax: tempMax,
+      rorMin: rorMin,
+      rorMax: rorMax,
+      fanMin: fanMin,
+      fanMax: fanMax,
+      showRor: showRor,
+      showFan: showFan,
+      rorTickX: rorTickX,
+      fanTickX: fanTickX,
+    );
+  }
+}
 
 /// Roast profile visualization: bean temperature, fan setpoint (0–255-style), and optional RoR.
 /// Temp and fan may use **different** timestamps (Ikawa protobuf shape).
@@ -73,15 +216,18 @@ class _RoastProfileChartState extends State<RoastProfileChart> {
         final h = constraints.maxHeight.isFinite
             ? constraints.maxHeight.clamp(200.0, 560.0)
             : 280.0;
-        var rightPad = _RoastProfileChartPainter.rightPadMin;
-        if (widget.showRor) rightPad += _RoastProfileChartPainter.rorAxisW;
-        if (hasFan) rightPad += _RoastProfileChartPainter.fanAxisW;
-        final plot = Rect.fromLTRB(
-          _RoastProfileChartPainter.leftPad,
-          _RoastProfileChartPainter.topPad,
-          (constraints.maxWidth.isFinite ? constraints.maxWidth : 320) - rightPad,
-          h - _RoastProfileChartPainter.bottomPad,
+        final chartSize = Size(
+          constraints.maxWidth.isFinite ? constraints.maxWidth : 320,
+          h,
         );
+        final labelStyle = textTheme.labelSmall ?? const TextStyle(fontSize: 11);
+        final layout = _ChartLayout.compute(
+          size: chartSize,
+          series: widget.series,
+          showRor: widget.showRor,
+          labelStyle: labelStyle,
+        );
+        final plot = layout.plot;
 
         double xToPx(double sec) => plot.left + (sec - xMin) / (xMax - xMin) * plot.width;
         double tempToPx(double v) => plot.bottom - (v - tempMin) / (tempMax - tempMin) * plot.height;
@@ -167,12 +313,7 @@ class _RoastProfileChartState extends State<RoastProfileChart> {
             if (anchorTemp == null || tPerPy == null) return;
             nextTemp[idx] = (anchorTemp - dy * tPerPy).clamp(120.0, 260.0);
             widget.onSeriesChanged!(
-              RoastProfileSeries(
-                tempTimeSec: times,
-                temp: nextTemp,
-                fanTimeSec: List<double>.from(widget.series.fanTimeSec),
-                fan: List<double>.from(widget.series.fan),
-              ),
+              widget.series.copyWith(tempTimeSec: times, temp: nextTemp),
             );
           } else {
             final fanTimes = [...widget.series.fanTimeSec];
@@ -191,12 +332,7 @@ class _RoastProfileChartState extends State<RoastProfileChart> {
             if (anchorFan == null || fPerPy == null) return;
             fanVals[idx] = (anchorFan - dy * fPerPy).clamp(0.0, 255.0);
             widget.onSeriesChanged!(
-              RoastProfileSeries(
-                tempTimeSec: List<double>.from(widget.series.tempTimeSec),
-                temp: List<double>.from(widget.series.temp),
-                fanTimeSec: fanTimes,
-                fan: fanVals,
-              ),
+              widget.series.copyWith(fanTimeSec: fanTimes, fan: fanVals),
             );
           }
         }
@@ -262,7 +398,7 @@ class _RoastProfileChartState extends State<RoastProfileChart> {
                 fanColor: scheme.secondary,
                 gridColor: scheme.outlineVariant.withValues(alpha: 0.5),
                 axisColor: scheme.onSurfaceVariant,
-                labelStyle: textTheme.labelSmall ?? const TextStyle(fontSize: 11),
+                labelStyle: labelStyle,
               ),
             ),
           ),
@@ -305,50 +441,28 @@ class _RoastProfileChartPainter extends CustomPainter {
   final Color axisColor;
   final TextStyle labelStyle;
 
-  static const leftPad = 44.0;
-  static const rorAxisW = 46.0;
-  static const fanAxisW = 42.0;
-  static const rightPadMin = 10.0;
-  static const bottomPad = 36.0;
-  static const topPad = 12.0;
-
   @override
   void paint(Canvas canvas, Size size) {
+    final layout = _ChartLayout.compute(
+      size: size,
+      series: series,
+      showRor: showRor,
+      labelStyle: labelStyle,
+    );
+    final plot = layout.plot;
     final tTemp = series.tempTimeSec;
     final tFan = series.fanTimeSec;
     final temp = series.temp;
-    final ror = series.ror;
     final fan = series.fan;
-    final showFan = fan.isNotEmpty;
-
-    var xMin = series.timelineStartSec;
-    var xMax = series.timelineEndSec;
-    if (xMax <= xMin) xMax = xMin + 60;
-
-    final tempMin = temp.reduce((a, b) => a < b ? a : b) - 4;
-    final tempMax = temp.reduce((a, b) => a > b ? a : b) + 4;
-    final rorLo = ror.reduce((a, b) => a < b ? a : b);
-    final rorHi = ror.reduce((a, b) => a > b ? a : b);
-    var rorMin = math.min(0.0, rorLo) - 2.0;
-    var rorMax = math.max(0.0, rorHi) + 2.0;
-    if (rorMax <= rorMin) {
-      rorMax = rorMin + 8.0;
-    }
-
-    final fanHi = showFan ? fan.reduce((a, b) => a > b ? a : b) : 255.0;
-    final fanMin = 0.0;
-    final fanMax = math.max(255.0, fanHi * 1.05);
-
-    var rightPad = rightPadMin;
-    if (showRor) rightPad += rorAxisW;
-    if (showFan) rightPad += fanAxisW;
-
-    final plot = Rect.fromLTRB(
-      leftPad,
-      topPad,
-      size.width - rightPad,
-      size.height - bottomPad,
-    );
+    final showFan = layout.showFan;
+    final xMin = layout.xMin;
+    final xMax = layout.xMax;
+    final tempMin = layout.tempMin;
+    final tempMax = layout.tempMax;
+    final rorMin = layout.rorMin;
+    final rorMax = layout.rorMax;
+    final fanMin = layout.fanMin;
+    final fanMax = layout.fanMax;
 
     double xToPx(double sec) => plot.left + (sec - xMin) / (xMax - xMin) * plot.width;
     double tempToPx(double v) => plot.bottom - (v - tempMin) / (tempMax - tempMin) * plot.height;
@@ -427,18 +541,23 @@ class _RoastProfileChartPainter extends CustomPainter {
     }
 
     if (showRor) {
-      final rorPath = Path()..moveTo(xToPx(tTemp[0]), rorToPx(ror[0]));
-      for (var i = 1; i < tTemp.length; i++) {
-        rorPath.lineTo(xToPx(tTemp[i]), rorToPx(ror[i]));
+      final display = RoastProfileSeriesFactory.rorDisplayFromTempProfile(tTemp, temp);
+      if (display.timeSec.length >= 2) {
+        final rorPath = Path()
+          ..moveTo(xToPx(display.timeSec[0]), rorToPx(display.ror[0]));
+        for (var i = 1; i < display.timeSec.length; i++) {
+          rorPath.lineTo(xToPx(display.timeSec[i]), rorToPx(display.ror[i]));
+        }
+        canvas.drawPath(
+          rorPath,
+          Paint()
+            ..color = rorColor
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2
+            ..strokeCap = StrokeCap.round
+            ..strokeJoin = StrokeJoin.round,
+        );
       }
-      canvas.drawPath(
-        rorPath,
-        Paint()
-          ..color = rorColor
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..strokeCap = StrokeCap.round,
-      );
     }
 
     final liveT = liveTimeSec;
@@ -480,7 +599,21 @@ class _RoastProfileChartPainter extends CustomPainter {
       }
     }
 
-    _paintLabel(canvas, 'Time (min)', Offset(plot.left + plot.width / 2 - 28, size.height - 18));
+    const titleY = 4.0;
+    _paintLabel(canvas, '°C', const Offset(6, titleY));
+
+    if (showRor) {
+      _paintLabelRight(canvas, 'RoR', layout.rorTickX, titleY);
+    }
+    if (showFan) {
+      _paintLabelRight(canvas, 'Fan', layout.fanTickX, titleY);
+    }
+
+    _paintLabel(
+      canvas,
+      'Time (min)',
+      Offset(plot.left + plot.width / 2 - 28, size.height - _ChartLayout.bottomPad + 4),
+    );
     for (var i = 0; i <= 4; i++) {
       final sec = xMin + (xMax - xMin) * i / 4;
       final label = (sec / 60).toStringAsFixed(0);
@@ -491,30 +624,24 @@ class _RoastProfileChartPainter extends CustomPainter {
     for (var i = 0; i <= 4; i++) {
       final v = tempMin + (tempMax - tempMin) * (4 - i) / 4;
       final ty = plot.top + plot.height * i / 4;
-      _paintLabel(canvas, '${v.round()}', Offset(4, ty - 6));
+      _paintLabelRight(canvas, '${v.round()}', plot.left - 4, ty - 6);
     }
 
-    var xRor = plot.right + 4.0;
     if (showRor) {
       for (var i = 0; i <= 4; i++) {
         final v = rorMin + (rorMax - rorMin) * (4 - i) / 4;
         final ty = plot.top + plot.height * i / 4;
-        _paintLabel(canvas, v.toStringAsFixed(0), Offset(xRor, ty - 6));
+        _paintLabelRight(canvas, v.toStringAsFixed(0), layout.rorTickX, ty - 6);
       }
-      _paintLabel(canvas, 'RoR', Offset(xRor, 4));
     }
 
     if (showFan) {
-      final xFan = plot.right + (showRor ? rorAxisW : 0) + 4;
       for (var i = 0; i <= 4; i++) {
         final v = fanMin + (fanMax - fanMin) * (4 - i) / 4;
         final ty = plot.top + plot.height * i / 4;
-        _paintLabel(canvas, v.round().toString(), Offset(xFan, ty - 6));
+        _paintLabelRight(canvas, v.round().toString(), layout.fanTickX, ty - 6);
       }
-      _paintLabel(canvas, 'Fan', Offset(xFan, 4));
     }
-
-    _paintLabel(canvas, '°C', Offset(8, 4));
   }
 
   void _strokePathDashed(Canvas canvas, Path path, Paint paint) {
@@ -541,6 +668,14 @@ class _RoastProfileChartPainter extends CustomPainter {
     tp.paint(canvas, offset);
   }
 
+  void _paintLabelRight(Canvas canvas, String text, double rightX, double y) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: labelStyle.copyWith(color: axisColor)),
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(rightX - tp.width, y));
+  }
+
   void _drawDashedLine(Canvas canvas, Offset a, Offset b, Paint paint) {
     const dash = 6.0;
     const gap = 4.0;
@@ -559,7 +694,12 @@ class _RoastProfileChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _RoastProfileChartPainter oldDelegate) {
-    return oldDelegate.series != series ||
+    final s = series;
+    final o = oldDelegate.series;
+    return !listEquals(s.temp, o.temp) ||
+        !listEquals(s.tempTimeSec, o.tempTimeSec) ||
+        !listEquals(s.fan, o.fan) ||
+        !listEquals(s.fanTimeSec, o.fanTimeSec) ||
         oldDelegate.showRor != showRor ||
         oldDelegate.liveTimeSec != liveTimeSec ||
         oldDelegate.liveTemp != liveTemp ||

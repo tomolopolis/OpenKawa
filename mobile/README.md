@@ -1,7 +1,8 @@
 # IKAWA Flutter Workspace
 
 This folder contains the Flutter/Dart mobile codebase following
-`../docs/flutter-architecture.md`.
+`../docs/flutter-architecture.md`. Implementation status:
+[`../docs/flutter-implementation-checklist.md`](../docs/flutter-implementation-checklist.md).
 
 ## Structure
 

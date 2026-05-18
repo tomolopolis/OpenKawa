@@ -182,15 +182,18 @@ This will save huge amounts of debugging time.
 
 ## Suggested Build Plan
 
-- Create workspace/packages
-- Implement `ikawa_protocol_core` framing + CRC + tests
-- Add protobuf generation pipeline for Dart
-- Implement BLE transport abstraction + plugin-backed implementation
-- Build basic connect + notify + write test screen in app
-- Implement `ikawa_app_domain` request/response pipeline
-- Add profile/status flows and retry/timeout handling
-- Hardware stabilization and error-handling polish
-- Add session recorder/replayer and improve user-facing diagnostics
+Historical outline (many items are done). Track current status in
+**[flutter-implementation-checklist.md](flutter-implementation-checklist.md)**.
+
+- Create workspace/packages — **done**
+- Implement `ikawa_protocol_core` framing + CRC + tests — **done** (extend with goldens)
+- Add protobuf generation pipeline for Dart — **done**
+- Implement BLE transport abstraction + plugin-backed implementation — **done**
+- Build basic connect + notify + write test screen in app — **done**
+- Implement `ikawa_app_domain` request/response pipeline — **partial** (retry/queue TBD)
+- Add profile/status flows and retry/timeout handling — **partial**
+- Hardware stabilization and error-handling polish — **open**
+- Add session recorder/replayer and improve user-facing diagnostics — **open**
 
 ## What to Keep From This Python Repo
 
@@ -201,11 +204,7 @@ Keep this repo as:
 
 Do not depend on Python runtime inside the phone app.
 
-## First Concrete Next Step
+## Next steps
 
-Create the Flutter workspace and the first package:
-- `packages/ikawa_protocol_core`
-- implement `crc16.dart`
-- add 10+ CRC/framing tests using vectors from current Python logic
-
-Once this is in place, UI and BLE work can safely iterate around a stable core.
+See **[flutter-implementation-checklist.md](flutter-implementation-checklist.md)** for
+done / partial / open items and the suggested milestone order.

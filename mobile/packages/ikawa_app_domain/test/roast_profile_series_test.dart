@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:ikawa_app_domain/src/roast_profile_series.dart';
 import 'package:test/test.dart';
 
@@ -92,6 +94,44 @@ void main() {
     final iCool = s.tempTimeSec.indexWhere((t) => t > roastEnd);
     expect(iCool, greaterThan(0));
     expect(s.fan[iCool], 255);
+  });
+
+  test('rorDisplayFromTempProfile returns smooth densified curve', () {
+    final display = RoastProfileSeriesFactory.rorDisplayFromTempProfile(
+      const [0, 120, 300, 480, 660],
+      const [158, 158, 176, 192, 204],
+      sampleCount: 80,
+    );
+    expect(display.timeSec.length, 80);
+    expect(display.ror.length, display.timeSec.length);
+  });
+
+  test('rorDisplayFromTempProfile avoids sharp steps at setpoint corners', () {
+    final display = RoastProfileSeriesFactory.rorDisplayFromTempProfile(
+      const [0, 60, 120],
+      const [150, 150, 210],
+      sampleCount: 120,
+      windowSec: 40,
+    );
+    final mid = display.ror.length ~/ 2;
+    final maxJump = List.generate(display.ror.length - 1, (i) {
+      return (display.ror[i + 1] - display.ror[i]).abs();
+    }).reduce(math.max);
+    expect(maxJump, lessThan(4.0), reason: 'mid-profile RoR should not stair-step');
+    expect(display.ror[mid], greaterThan(0));
+  });
+
+  test('copyWith recomputes RoR when temp setpoints change', () {
+    final s = RoastProfileSeriesFactory.sparseSetpoints(
+      tempTimeSec: const [0, 120, 300, 480, 660],
+      temp: const [158, 158, 176, 192, 204],
+      fanTimeSec: const [0, 240, 660],
+      fan: const [88, 112, 128],
+    );
+    final before = s.derivedRor;
+    final edited = s.copyWith(temp: const [158, 158, 200, 192, 204]);
+    expect(edited.derivedRor, isNot(equals(before)));
+    expect(edited.ror, equals(edited.derivedRor));
   });
 
   test('mismatched temp lengths throw', () {
