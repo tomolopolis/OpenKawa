@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'app_assets.dart';
 import 'home_screen.dart';
 import 'roast_profile_list_screen.dart';
 import 'run_history_screen.dart';
+import 'widgets/app_background.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -21,42 +23,45 @@ class _AppShellState extends State<AppShell> {
     final isWide = MediaQuery.of(context).size.width >= 840;
     return Scaffold(
       appBar: AppBar(title: Text(_titles[_index])),
-      body: Row(
-        children: [
-          if (isWide)
-            NavigationRail(
-              selectedIndex: _index,
-              onDestinationSelected: (i) => setState(() => _index = i),
-              labelType: NavigationRailLabelType.all,
-              destinations: const [
-                NavigationRailDestination(
-                  icon: Icon(Icons.menu_book_outlined),
-                  selectedIcon: Icon(Icons.menu_book),
-                  label: Text('Profiles'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.bluetooth_searching),
-                  selectedIcon: Icon(Icons.bluetooth_connected),
-                  label: Text('Roaster'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.history_outlined),
-                  selectedIcon: Icon(Icons.history),
-                  label: Text('History'),
-                ),
-              ],
+      body: AppBackground(
+        assetPath: AppAssets.backgroundForTab(_index),
+        child: Row(
+          children: [
+            if (isWide)
+              NavigationRail(
+                selectedIndex: _index,
+                onDestinationSelected: (i) => setState(() => _index = i),
+                labelType: NavigationRailLabelType.all,
+                destinations: const [
+                  NavigationRailDestination(
+                    icon: Icon(Icons.menu_book_outlined),
+                    selectedIcon: Icon(Icons.menu_book),
+                    label: Text('Profiles'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.bluetooth_searching),
+                    selectedIcon: Icon(Icons.bluetooth_connected),
+                    label: Text('Roaster'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.history_outlined),
+                    selectedIcon: Icon(Icons.history),
+                    label: Text('History'),
+                  ),
+                ],
+              ),
+            Expanded(
+              child: IndexedStack(
+                index: _index,
+                children: const [
+                  RoastProfileListScreen(),
+                  HomeScreen(),
+                  RunHistoryScreen(),
+                ],
+              ),
             ),
-          Expanded(
-            child: IndexedStack(
-              index: _index,
-              children: const [
-                RoastProfileListScreen(),
-                HomeScreen(),
-                RunHistoryScreen(),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
       bottomNavigationBar: isWide
           ? null
