@@ -13,6 +13,7 @@ import 'live_roast_telemetry.dart';
 import 'profile_detail_screen.dart';
 import 'providers.dart';
 import 'roast_features.dart';
+import 'theme/open_kawa_colors.dart';
 import 'widgets/status_card.dart';
 import 'widgets/roast_profile_chart.dart';
 
@@ -652,7 +653,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SizedBox(height: 8),
               DecoratedBox(
                 decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                  color: OpenKawaColors.warmCream,
+                  border: Border.all(color: OpenKawaColors.chocolate.withValues(alpha: 0.4)),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: ClipRRect(

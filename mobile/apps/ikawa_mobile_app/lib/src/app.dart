@@ -11,6 +11,7 @@ class IkawaMobileApp extends StatelessWidget {
     return MaterialApp(
       title: 'OpenKawa',
       theme: OpenKawaTheme.light(),
+      themeMode: ThemeMode.light,
       home: const AppShell(),
     );
   }

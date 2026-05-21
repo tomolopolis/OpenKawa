@@ -31,8 +31,13 @@ abstract final class OpenKawaTheme {
 
     return ThemeData(
       useMaterial3: true,
+      brightness: Brightness.light,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: Colors.transparent,
+      scaffoldBackgroundColor: OpenKawaColors.warmCream,
+      canvasColor: OpenKawaColors.warmCream,
+      dialogTheme: const DialogThemeData(
+        backgroundColor: OpenKawaColors.warmCream,
+      ),
       appBarTheme: const AppBarTheme(
         backgroundColor: OpenKawaColors.richEarthBrown,
         foregroundColor: OpenKawaColors.warmCream,

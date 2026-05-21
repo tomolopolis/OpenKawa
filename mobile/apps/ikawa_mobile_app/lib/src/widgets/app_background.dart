@@ -24,6 +24,7 @@ class AppBackground extends StatelessWidget {
               image: AssetImage(assetPath),
               fit: BoxFit.cover,
               alignment: Alignment.center,
+              opacity: 0.18,
             ),
           ),
         ),
@@ -34,7 +35,7 @@ class AppBackground extends StatelessWidget {
               end: Alignment.bottomCenter,
               colors: [
                 OpenKawaColors.warmCream.withValues(alpha: 0.55),
-                OpenKawaColors.warmCream.withValues(alpha: 0.82),
+                OpenKawaColors.warmCream.withValues(alpha: 0.75),
               ],
             ),
           ),
