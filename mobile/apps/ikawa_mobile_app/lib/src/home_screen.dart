@@ -17,6 +17,14 @@ import 'theme/open_kawa_colors.dart';
 import 'widgets/status_card.dart';
 import 'widgets/roast_profile_chart.dart';
 
+enum _RoasterMenuAction {
+  loadMachineInfo,
+  refreshLiveStatus,
+  editBeans,
+  loadBeanLibrary,
+  exportCsv,
+}
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -336,25 +344,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return session.sendTypedRequest(request);
   }
 
-  Future<void> _getMachineType() async {
-    if (_connectionState != BleConnectionState.connected) {
-      setState(() => _status = 'Connect to a device first.');
-      return;
-    }
-    setState(() => _status = 'Sending MACH_PROP_GET_TYPE...');
-    try {
-      final response = await _sendCommand(2);
-      final type = response.hasRespMachPropType() ? response.respMachPropType.type : -1;
-      final variant = response.hasRespMachPropType() ? response.respMachPropType.variant : -1;
-      setState(() {
-        _status = 'OK seq=${response.seq} resp=${response.resp.value}\n'
-            'type=$type variant=$variant';
-      });
-    } catch (e) {
-      setState(() => _status = 'Request failed: $e');
-    }
-  }
-
   Future<void> _loadMachineInfo() async {
     if (_connectionState != BleConnectionState.connected) {
       setState(() => _status = 'Connect to a device first.');
@@ -582,23 +571,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ],
             const SizedBox(height: 12),
             ElevatedButton(
-              onPressed: _connectionState == BleConnectionState.connected ? _getMachineType : null,
-              child: const Text('Get Machine Type'),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: _connectionState == BleConnectionState.connected ? _loadMachineInfo : null,
-              child: const Text('Load Machine Info'),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: _connectionState == BleConnectionState.connected
-                  ? () => _getMachineStatus()
-                  : null,
-              child: const Text('Refresh Live Status'),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(
               onPressed: _connectionState == BleConnectionState.connected ? _uploadSelectedProfile : null,
               child: const Text('Upload Selected Profile'),
             ),
@@ -691,24 +663,68 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               const SizedBox(height: 12),
             ],
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
               children: [
                 if (beans.isNotEmpty)
-                  DropdownButton<String>(
-                    value: selectedBeanId ?? beans.first.id,
-                    items: beans
-                        .map((b) => DropdownMenuItem<String>(
-                              value: b.id,
-                              child: Text('${b.name} (${b.densityGPerMl.toStringAsFixed(2)} g/ml)'),
-                            ))
-                        .toList(),
-                    onChanged: (v) => ref.read(selectedBeanIdProvider.notifier).state = v,
+                  Expanded(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: selectedBeanId ?? beans.first.id,
+                      items: beans
+                          .map((b) => DropdownMenuItem<String>(
+                                value: b.id,
+                                child: Text('${b.name} (${b.densityGPerMl.toStringAsFixed(2)} g/ml)'),
+                              ))
+                          .toList(),
+                      onChanged: (v) => ref.read(selectedBeanIdProvider.notifier).state = v,
+                    ),
                   ),
-                OutlinedButton(onPressed: _showBeanEditor, child: const Text('Edit Beans')),
-                OutlinedButton(onPressed: _loadBeanLibrary, child: const Text('Load Bean Library')),
-                OutlinedButton(onPressed: _exportCsv, child: const Text('Export Artisan CSV')),
+                PopupMenuButton<_RoasterMenuAction>(
+                  tooltip: 'More actions',
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (action) {
+                    switch (action) {
+                      case _RoasterMenuAction.loadMachineInfo:
+                        _loadMachineInfo();
+                      case _RoasterMenuAction.refreshLiveStatus:
+                        _getMachineStatus();
+                      case _RoasterMenuAction.editBeans:
+                        _showBeanEditor();
+                      case _RoasterMenuAction.loadBeanLibrary:
+                        _loadBeanLibrary();
+                      case _RoasterMenuAction.exportCsv:
+                        _exportCsv();
+                    }
+                  },
+                  itemBuilder: (context) {
+                    final connected = _connectionState == BleConnectionState.connected;
+                    return [
+                      PopupMenuItem(
+                        value: _RoasterMenuAction.loadMachineInfo,
+                        enabled: connected,
+                        child: const Text('Load Machine Info'),
+                      ),
+                      PopupMenuItem(
+                        value: _RoasterMenuAction.refreshLiveStatus,
+                        enabled: connected,
+                        child: const Text('Refresh Live Status'),
+                      ),
+                      const PopupMenuDivider(),
+                      const PopupMenuItem(
+                        value: _RoasterMenuAction.editBeans,
+                        child: Text('Edit Beans'),
+                      ),
+                      const PopupMenuItem(
+                        value: _RoasterMenuAction.loadBeanLibrary,
+                        child: Text('Load Bean Library'),
+                      ),
+                      const PopupMenuItem(
+                        value: _RoasterMenuAction.exportCsv,
+                        child: Text('Export Artisan CSV'),
+                      ),
+                    ];
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 12),
