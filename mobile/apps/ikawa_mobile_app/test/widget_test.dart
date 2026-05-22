@@ -48,9 +48,13 @@ void main() {
     await tester.tap(find.text('Connect'));
     await tester.pumpAndSettle(const Duration(milliseconds: 500));
 
+    await tester.tap(find.byTooltip('More actions'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Load Machine Info'));
     await tester.pumpAndSettle(const Duration(milliseconds: 500));
 
+    await tester.tap(find.byTooltip('More actions'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Refresh Live Status'));
     await tester.pumpAndSettle(const Duration(milliseconds: 500));
 

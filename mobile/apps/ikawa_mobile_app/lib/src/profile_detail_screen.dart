@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ikawa_app_domain/ikawa_app_domain.dart';
 
 import 'providers.dart';
+import 'theme/open_kawa_colors.dart';
 import 'widgets/roast_profile_chart.dart';
 import 'roast_features.dart';
 
@@ -178,7 +179,8 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> {
                 padding: const EdgeInsets.all(16),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                    color: OpenKawaColors.warmCream,
+                    border: Border.all(color: OpenKawaColors.chocolate.withValues(alpha: 0.4)),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: ClipRRect(

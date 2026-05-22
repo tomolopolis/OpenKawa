@@ -1,0 +1,29 @@
+:root {
+  /* Primary Colours */
+  --color-coffee-cherry-red: #d21f28;
+  --color-warm-cream: #f9f4e8;
+  --color-rich-earth-brown: #4b3621;
+
+  /* Secondary Colours */
+  --color-deep-forest-green: #3e5b31;
+  --color-golden-harvest: #b2ad3c;
+  --color-dark-roast: #2d1b13;
+
+  /* Accent Colours */
+  --color-berry-jam: #8b1a1e;
+  --color-chocolate: #5d3a1a;
+  --color-soft-peach: #fce5cd;
+}
+
+.primary-button {
+  background-color: var(--color-coffee-cherry-red);
+  color: var(--color-warm-cream);
+}
+
+.app-background {
+  background-color: var(--color-warm-cream);
+}
+
+.text-primary {
+  color: var(--color-dark-roast);
+}
